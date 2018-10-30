@@ -1,26 +1,37 @@
-import { ScriptBuilder } from '../sc'
-import { getScriptHashFromAddress, Account } from '../wallet'
-import { Query, VMZip } from '../rpc'
-import { reverseHex, hexstring2str } from '../utils'
-import { getRPCEndpoint, getBalance } from './neonDB'
-import { Transaction } from '../transactions'
-import { ASSET_ID } from '../consts'
-import logger from '../logging'
+import { ScriptBuilder } from "../sc";
+import { getScriptHashFromAddress, Account } from "../wallet";
+import { Query, VMZip } from "../rpc";
+import { reverseHex, hexstring2str } from "../utils";
+import { getRPCEndpoint, getBalance } from "./neonDB";
+import { Transaction } from "../transactions";
+import { ASSET_ID } from "../consts";
+import logger from "../logging";
 
-const log = logger('api')
+const log = logger("api");
 
 /**
  * Parses the VM output for decimals. The VM returns an integer for most cases but it can be an empty string for zero.
  */
-const parseDecimals = (VMOutput) => {
-  if (VMOutput === '') return 0
-  return parseInt(VMOutput, 10)
-}
-const parseHexNum = (hex) => hex ? parseInt(reverseHex(hex), 16) : 0
+const parseDecimals = VMOutput => {
+  if (VMOutput === "") return 0;
+  return parseInt(VMOutput, 10);
+};
+const parseHexNum = hex => (hex ? parseInt(reverseHex(hex), 16) : 0);
 
-const parseTokenInfo = VMZip(hexstring2str, hexstring2str, parseDecimals, parseHexNum)
+const parseTokenInfo = VMZip(
+  hexstring2str,
+  hexstring2str,
+  parseDecimals,
+  parseHexNum
+);
 
-const parseTokenInfoAndBalance = VMZip(hexstring2str, hexstring2str, parseDecimals, parseHexNum, parseHexNum)
+const parseTokenInfoAndBalance = VMZip(
+  hexstring2str,
+  hexstring2str,
+  parseDecimals,
+  parseHexNum,
+  parseHexNum
+);
 
 /**
  * Queries for NEP5 Token information.
@@ -29,27 +40,28 @@ const parseTokenInfoAndBalance = VMZip(hexstring2str, hexstring2str, parseDecima
  * @return {Promise<{name: string, symbol: string, decimals: number, totalSupply: number}>}
  */
 export const getTokenInfo = (url, scriptHash) => {
-  const sb = new ScriptBuilder()
-  sb
-    .emitAppCall(scriptHash, 'name')
-    .emitAppCall(scriptHash, 'symbol')
-    .emitAppCall(scriptHash, 'decimals')
-    .emitAppCall(scriptHash, 'totalSupply')
-  const script = sb.str
-  return Query.invokeScript(script, false).parseWith(parseTokenInfo).execute(url)
-    .then((res) => {
+  const sb = new ScriptBuilder();
+  sb.emitAppCall(scriptHash, "name")
+    .emitAppCall(scriptHash, "symbol")
+    .emitAppCall(scriptHash, "decimals")
+    .emitAppCall(scriptHash, "totalSupply");
+  const script = sb.str;
+  return Query.invokeScript(script, false)
+    .parseWith(parseTokenInfo)
+    .execute(url)
+    .then(res => {
       return {
         name: res[0],
         symbol: res[1],
         decimals: res[2],
         totalSupply: res[3] / Math.pow(10, res[2])
-      }
+      };
     })
     .catch(err => {
-      log.error(`getTokenInfo failed with : ${err.message}`)
-      throw err
-    })
-}
+      log.error(`getTokenInfo failed with : ${err.message}`);
+      throw err;
+    });
+};
 
 /**
  * Get the token balance of Address from Contract
@@ -59,27 +71,26 @@ export const getTokenInfo = (url, scriptHash) => {
  * @return {Promise<number>}
  */
 export const getTokenBalance = (url, scriptHash, address) => {
-  const addrScriptHash = reverseHex(getScriptHashFromAddress(address))
-  const sb = new ScriptBuilder()
-  const script =
-    sb
-      .emitAppCall(scriptHash, 'decimals')
-      .emitAppCall(scriptHash, 'balanceOf', [addrScriptHash])
-      .str
-  return Query.invokeScript(script, false).execute(url)
-    .then((res) => {
+  const addrScriptHash = reverseHex(getScriptHashFromAddress(address));
+  const sb = new ScriptBuilder();
+  const script = sb
+    .emitAppCall(scriptHash, "decimals")
+    .emitAppCall(scriptHash, "balanceOf", [addrScriptHash]).str;
+  return Query.invokeScript(script, false)
+    .execute(url)
+    .then(res => {
       try {
-        const decimals = parseDecimals(res.result.stack[0].value)
-        return parseHexNum(res.result.stack[1].value) / Math.pow(10, decimals)
+        const decimals = parseDecimals(res.result.stack[0].value);
+        return parseHexNum(res.result.stack[1].value) / Math.pow(10, decimals);
       } catch (error) {
-        return 0
+        return 0;
       }
     })
     .catch(err => {
-      log.error(`getTokenBalance failed with : ${err.message}`)
-      throw err
-    })
-}
+      log.error(`getTokenBalance failed with : ${err.message}`);
+      throw err;
+    });
+};
 
 /**
  * Get the token balance of Address from Contract
@@ -89,39 +100,45 @@ export const getTokenBalance = (url, scriptHash, address) => {
  * @return {Promise<{symbol: number}>}
  */
 export const getTokenBalances = (url, scriptHashArray, address) => {
-  const addrScriptHash = reverseHex(getScriptHashFromAddress(address))
-  let sb = new ScriptBuilder()
+  const addrScriptHash = reverseHex(getScriptHashFromAddress(address));
+  let sb = new ScriptBuilder();
   scriptHashArray.forEach((scriptHash, index) => {
-    sb
-      .emitAppCall(scriptHash, 'symbol')
-      .emitAppCall(scriptHash, 'decimals')
-      .emitAppCall(scriptHash, 'balanceOf', [addrScriptHash])
-  })
+    sb.emitAppCall(scriptHash, "symbol")
+      .emitAppCall(scriptHash, "decimals")
+      .emitAppCall(scriptHash, "balanceOf", [addrScriptHash]);
+  });
   return Query.invokeScript(sb.str, false)
     .execute(url)
     .then(res => {
-      const tokenList = {}
-      if (res && res.result && res.result.stack && res.result.stack.length >= 3) {
+      const tokenList = {};
+      if (
+        res &&
+        res.result &&
+        res.result.stack &&
+        res.result.stack.length >= 3
+      ) {
         for (let i = 0; i < res.result.stack.length; i += 3) {
           try {
-            const symbol = hexstring2str(res.result.stack[i].value)
-            const decimals = parseDecimals(res.result.stack[i + 1].value)
+            const symbol = hexstring2str(res.result.stack[i].value);
+            const decimals = parseDecimals(res.result.stack[i + 1].value);
             tokenList[symbol] =
               parseHexNum(res.result.stack[i + 2].value) /
-              Math.pow(10, decimals)
+              Math.pow(10, decimals);
           } catch (e) {
-            log.error(`single call in getTokenBalances failed with : ${e.message}`)
-            throw e
+            log.error(
+              `single call in getTokenBalances failed with : ${e.message}`
+            );
+            throw e;
           }
         }
       }
-      return tokenList
+      return tokenList;
     })
     .catch(err => {
-      log.error(`getTokenBalances failed with : ${err.message}`)
-      throw err
-    })
-}
+      log.error(`getTokenBalances failed with : ${err.message}`);
+      throw err;
+    });
+};
 
 /**
  * Get the token info and also balance if address is provided.
@@ -131,33 +148,101 @@ export const getTokenBalances = (url, scriptHashArray, address) => {
  * @return {Promise<object>} Object containing name, symbol, decimals, totalSupply. balance will be included if address is provided.
  */
 export const getToken = (url, scriptHash, address) => {
-  let parser = address ? parseTokenInfoAndBalance : parseTokenInfo
-  const sb = new ScriptBuilder()
-  sb
-    .emitAppCall(scriptHash, 'name')
-    .emitAppCall(scriptHash, 'symbol')
-    .emitAppCall(scriptHash, 'decimals')
-    .emitAppCall(scriptHash, 'totalSupply')
+  let parser = address ? parseTokenInfoAndBalance : parseTokenInfo;
+  const sb = new ScriptBuilder();
+  sb.emitAppCall(scriptHash, "name")
+    .emitAppCall(scriptHash, "symbol")
+    .emitAppCall(scriptHash, "decimals")
+    .emitAppCall(scriptHash, "totalSupply");
   if (address) {
-    const addrScriptHash = reverseHex(getScriptHashFromAddress(address))
-    sb.emitAppCall(scriptHash, 'balanceOf', [addrScriptHash])
+    const addrScriptHash = reverseHex(getScriptHashFromAddress(address));
+    sb.emitAppCall(scriptHash, "balanceOf", [addrScriptHash]);
   }
-  const script = sb.str
-  return Query.invokeScript(script, false).parseWith(parser).execute(url)
-    .then((res) => {
+  const script = sb.str;
+  return Query.invokeScript(script, false)
+    .parseWith(parser)
+    .execute(url)
+    .then(res => {
       return {
         name: res[0],
         symbol: res[1],
         decimals: res[2],
         totalSupply: res[3] / Math.pow(10, res[2]),
         balance: res.length === 5 ? res[4] / Math.pow(10, res[2]) : null
-      }
+      };
     })
     .catch(err => {
-      log.error(`getToken failed with : ${err.message}`)
-      throw err
-    })
-}
+      log.error(`getToken failed with : ${err.message}`);
+      throw err;
+    });
+};
+
+/**
+ * Retrieves the complete information about all (or a list of) tokens.
+ * @param url RPC Node url to query.
+ * @param scriptHashArray Array of NEP5 contract scriptHashes.
+ * @param address Optional address to query the balance for. If provided, the returned object will include the balance property.
+ */
+export const getTokens = async (url, scriptHashArray, address) => {
+  const sb = new sc.ScriptBuilder();
+  scriptHashArray.forEach(scriptHash => {
+    if (address) {
+      const addrScriptHash = u.reverseHex(
+        wallet.getScriptHashFromAddress(address)
+      );
+      sb.emitAppCall(scriptHash, "name")
+        .emitAppCall(scriptHash, "symbol")
+        .emitAppCall(scriptHash, "decimals")
+        .emitAppCall(scriptHash, "totalSupply")
+        .emitAppCall(scriptHash, "balanceOf", [addrScriptHash]);
+    } else {
+      sb.emitAppCall(scriptHash, "name")
+        .emitAppCall(scriptHash, "symbol")
+        .emitAppCall(scriptHash, "decimals")
+        .emitAppCall(scriptHash, "totalSupply");
+    }
+  });
+  try {
+    const res = await rpc.Query.invokeScript(sb.str).execute(url);
+    const result = [];
+    const step = address ? 5 : 4;
+    for (let i = 0; i < res.result.stack.length; i += step) {
+      const name = rpc.StringParser(res.result.stack[i]);
+      const symbol = rpc.StringParser(res.result.stack[i + 1]);
+      const decimals = rpc.IntegerParser(res.result.stack[i + 2]);
+      const totalSupply = rpc
+        .Fixed8Parser(res.result.stack[i + 3])
+        .dividedBy(
+          Math.pow(10, decimals - rpc.IntegerParser(res.result.stack[i + 2]))
+        )
+        .toNumber();
+      const balance = address
+        ? rpc
+            .Fixed8Parser(res.result.stack[i + 4])
+            .dividedBy(
+              Math.pow(
+                10,
+                decimals - rpc.IntegerParser(res.result.stack[i + 2])
+              )
+            )
+        : undefined;
+      const obj = {
+        name,
+        symbol,
+        decimals,
+        totalSupply,
+        balance
+      };
+
+      if (!obj.balance) delete obj.balance;
+      result.push(obj);
+    }
+    return result;
+  } catch (err) {
+    log.error(`getToken failed with : ${err.message}`);
+    throw err;
+  }
+};
 
 /**
  * Transfers NEP5 Tokens.
@@ -170,38 +255,60 @@ export const getToken = (url, scriptHash, address) => {
  * @param {function} [signingFunction] - Optional external signing function.
  * @return {Promise<Response>} RPC response
  */
-export const doTransferToken = (net, scriptHash, fromWif, toAddress, transferAmount, gasCost = 0, signingFunction = null) => {
-  log.warn('doTransferToken will be deprecated in favor of doInvoke')
-  const account = new Account(fromWif)
-  const rpcEndpointPromise = getRPCEndpoint(net)
-  const balancePromise = getBalance(net, account.address)
-  let signedTx
-  let endpt
+export const doTransferToken = (
+  net,
+  scriptHash,
+  fromWif,
+  toAddress,
+  transferAmount,
+  gasCost = 0,
+  signingFunction = null
+) => {
+  log.warn("doTransferToken will be deprecated in favor of doInvoke");
+  const account = new Account(fromWif);
+  const rpcEndpointPromise = getRPCEndpoint(net);
+  const balancePromise = getBalance(net, account.address);
+  let signedTx;
+  let endpt;
   return Promise.all([rpcEndpointPromise, balancePromise])
-    .then((values) => {
-      endpt = values[0]
-      const balances = values[1]
-      const fromAddrScriptHash = getScriptHashFromAddress(account.address)
-      const toAddrScriptHash = reverseHex(getScriptHashFromAddress(toAddress))
+    .then(values => {
+      endpt = values[0];
+      const balances = values[1];
+      const fromAddrScriptHash = getScriptHashFromAddress(account.address);
+      const toAddrScriptHash = reverseHex(getScriptHashFromAddress(toAddress));
       const intents = [
-        { assetId: ASSET_ID.GAS, value: 0.00000001, scriptHash: fromAddrScriptHash }
-      ]
-      const invoke = { scriptHash, operation: 'transfer', args: [reverseHex(fromAddrScriptHash), toAddrScriptHash, transferAmount] }
-      const unsignedTx = Transaction.createInvocationTx(balances, intents, invoke, gasCost, { version: 1 })
+        {
+          assetId: ASSET_ID.GAS,
+          value: 0.00000001,
+          scriptHash: fromAddrScriptHash
+        }
+      ];
+      const invoke = {
+        scriptHash,
+        operation: "transfer",
+        args: [reverseHex(fromAddrScriptHash), toAddrScriptHash, transferAmount]
+      };
+      const unsignedTx = Transaction.createInvocationTx(
+        balances,
+        intents,
+        invoke,
+        gasCost,
+        { version: 1 }
+      );
       if (signingFunction) {
-        return signingFunction(unsignedTx, account.publicKey)
+        return signingFunction(unsignedTx, account.publicKey);
       } else {
-        return unsignedTx.sign(account.privateKey)
+        return unsignedTx.sign(account.privateKey);
       }
     })
-    .then((signedResult) => {
-      signedTx = signedResult
-      return Query.sendRawTransaction(signedTx).execute(endpt)
+    .then(signedResult => {
+      signedTx = signedResult;
+      return Query.sendRawTransaction(signedTx).execute(endpt);
     })
-    .then((res) => {
+    .then(res => {
       if (res.result === true) {
-        res.txid = signedTx.hash
+        res.txid = signedTx.hash;
       }
-      return res
-    })
-}
+      return res;
+    });
+};
